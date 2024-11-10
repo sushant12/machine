@@ -2,11 +2,16 @@
 
 Spin Firecracker VMs
 
-# Installation
 
 ## Pre-requisite
-
+- asdf
 - docker
 - kvm based linux
 
-`make build` and `./bin/machine`
+# Installation
+
+- `asdf install` 
+- `chmod a+x scripts/*`
+- `make download`
+- `make build`
+- `./bin/machine`
