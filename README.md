@@ -6,7 +6,3 @@ Spin Firecracker VMs
 
 ## Pre-requisite
 
-- docker
-- kvm based linux
-
-`make build` and `./bin/machine`
