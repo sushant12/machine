@@ -2,17 +2,18 @@ package main
 
 import (
 	"archive/tar"
-	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 
 	"github.com/google/go-containerregistry/pkg/authn"
 	"github.com/google/go-containerregistry/pkg/name"
+	v1 "github.com/google/go-containerregistry/pkg/v1"
 	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/sirupsen/logrus"
 )
@@ -36,103 +37,107 @@ type VMConfig struct {
 	} `json:"config"`
 }
 
-func runCommand(name string, args ...string) error {
-	cmd := exec.Command(name, args...)
-	var stderr bytes.Buffer
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		logrus.WithError(err).Errorf("Command failed: %s %v", name, args)
-		return fmt.Errorf("%s: %s", err, stderr.String())
-	}
-	return nil
-}
-
 func extractRootFS(imageName, outputFile string) error {
-	tempDir, err := os.MkdirTemp("", "rootfs")
-	if err != nil {
-		logrus.WithError(err).Error("Failed to create temporary directory")
-		return err
-	}
-	defer os.RemoveAll(tempDir)
-
 	ref, err := name.ParseReference(imageName)
 	if err != nil {
-		logrus.WithError(err).Error("Failed to parse image reference")
+		logrus.WithError(err).Error("Error parsing image reference")
 		return err
 	}
 
 	img, err := remote.Image(ref, remote.WithAuthFromKeychain(authn.DefaultKeychain))
 	if err != nil {
-		logrus.WithError(err).Error("Failed to get remote image")
+		logrus.WithError(err).Error("Error pulling image")
 		return err
 	}
 
+	digest, err := img.Digest()
+	if err != nil {
+		logrus.WithError(err).Error("Error getting image digest")
+		return err
+	}
+
+	destDir := "./extracted_fs"
+	if err := os.MkdirAll(destDir, 0755); err != nil {
+		log.Fatalf("Error creating destination directory: %v", err)
+	}
+
+	// Extract the image layers in order (later layers overlay earlier ones).
+	if err := extractImage(img, destDir); err != nil {
+		log.Fatalf("Error extracting image: %v", err)
+	}
+
+	logrus.Infof("Successfully pulled image %s with digest: %s", imageName, digest)
+	return nil
+}
+
+// extractImage iterates over the image layers and extracts each one into dest.
+// Note: This example does not handle whiteout files (which remove files from previous layers).
+func extractImage(img v1.Image, dest string) error {
 	layers, err := img.Layers()
 	if err != nil {
-		logrus.WithError(err).Error("Failed to get image layers")
-		return err
+		return fmt.Errorf("failed to get layers: %w", err)
 	}
 
 	for _, layer := range layers {
-		uncompressed, err := layer.Uncompressed()
+		if err := extractLayer(layer, dest); err != nil {
+			return fmt.Errorf("failed to extract a layer: %w", err)
+		}
+	}
+	return nil
+}
+
+// extractLayer extracts a single layer's tarball into the destination directory.
+func extractLayer(layer v1.Layer, dest string) error {
+	rc, err := layer.Compressed()
+	if err != nil {
+		return fmt.Errorf("failed to get compressed layer: %w", err)
+	}
+	defer rc.Close()
+
+	gr, err := gzip.NewReader(rc)
+	var tarReader *tar.Reader
+	if err == nil {
+		defer gr.Close()
+		tarReader = tar.NewReader(gr)
+	} else {
+		tarReader = tar.NewReader(rc)
+	}
+
+	for {
+		header, err := tarReader.Next()
+		if err == io.EOF {
+			break
+		}
 		if err != nil {
-			logrus.WithError(err).Error("Failed to uncompress layer")
-			return err
+			return fmt.Errorf("error reading tar entry: %w", err)
 		}
-		defer uncompressed.Close()
 
-		tr := tar.NewReader(uncompressed)
-		for {
-			header, err := tr.Next()
-			if err == io.EOF {
-				break
+		targetPath := filepath.Join(dest, header.Name)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(targetPath, os.FileMode(header.Mode)); err != nil {
+				return fmt.Errorf("failed to create directory %s: %w", targetPath, err)
 			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(targetPath), 0755); err != nil {
+				return fmt.Errorf("failed to create directory for file %s: %w", targetPath, err)
+			}
+			outFile, err := os.OpenFile(targetPath, os.O_CREATE|os.O_WRONLY, os.FileMode(header.Mode))
 			if err != nil {
-				logrus.WithError(err).Error("Failed to read tar header")
-				return err
+				return fmt.Errorf("failed to create file %s: %w", targetPath, err)
 			}
-
-			target := filepath.Join(tempDir, header.Name)
-			switch header.Typeflag {
-			case tar.TypeDir:
-				if err := os.MkdirAll(target, os.FileMode(header.Mode)); err != nil {
-					logrus.WithError(err).Error("Failed to create directory")
-					return err
-				}
-			case tar.TypeReg:
-				f, err := os.OpenFile(target, os.O_CREATE|os.O_RDWR, os.FileMode(header.Mode))
-				if err != nil {
-					logrus.WithError(err).Error("Failed to open file")
-					return err
-				}
-				if _, err := io.Copy(f, tr); err != nil {
-					f.Close()
-					logrus.WithError(err).Error("Failed to copy file content")
-					return err
-				}
-				f.Close()
+			if _, err := io.Copy(outFile, tarReader); err != nil {
+				outFile.Close()
+				return fmt.Errorf("failed to write file %s: %w", targetPath, err)
 			}
+			outFile.Close()
+		case tar.TypeSymlink:
+			if err := os.Symlink(header.Linkname, targetPath); err != nil {
+				return fmt.Errorf("failed to create symlink %s: %w", targetPath, err)
+			}
+		default:
 		}
-	}
-
-	// Create an ext4 filesystem from the extracted rootfs
-	if err := runCommand("dd", "if=/dev/zero", fmt.Sprintf("of=%s", outputFile), "bs=1M", "count=1024"); err != nil {
-		return err
-	}
-	if err := runCommand("mkfs.ext4", "-F", outputFile); err != nil {
-		return err
-	}
-	if err := os.MkdirAll("/mnt/ext4", 0755); err != nil {
-		logrus.WithError(err).Error("Failed to create mount directory")
-		return err
-	}
-	if err := runCommand("mount", "-o", "loop", outputFile, "/mnt/ext4"); err != nil {
-		return err
-	}
-	defer runCommand("umount", "/mnt/ext4")
-
-	if err := runCommand("cp", "-a", filepath.Join(tempDir, "."), "/mnt/ext4"); err != nil {
-		return err
 	}
 
 	return nil
@@ -151,15 +156,13 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Extract the rootfs from the provided Docker image
-	outputFile := "/bin"
+	outputFile := "/path/to/output/rootfs.img"
 	if err := extractRootFS(vmConfig.Config.Image, outputFile); err != nil {
 		logrus.WithError(err).Error("Failed to extract rootfs")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Process the VMConfig here (e.g., start the VM)
 	logrus.Infof("VM started with config: %+v", vmConfig)
 	fmt.Fprintf(w, "VM started with config: %+v\n", vmConfig)
 }
