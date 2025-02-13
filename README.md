@@ -23,6 +23,24 @@ Spin Firecracker VMs
     make build
     ```
 
+## Granting Permissions to Firecracker
+
+To run the Firecracker binary without requiring a password for `sudo`, you can use `setfacl` to grant the necessary permissions.
+
+1. Grant execute permissions to the Firecracker binary:
+
+    ```sh
+    sudo setfacl -m u:yourusername:x /path/to/bin/firecracker
+    ```
+
+    Replace `yourusername` with your actual username and `/path/to/bin/firecracker` with the full path to the Firecracker binary.
+
+2. Verify the permissions:
+
+    ```sh
+    getfacl /path/to/bin/firecracker
+    ```
+
 ## Usage
 
 1. Start the server:

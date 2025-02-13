@@ -2,11 +2,11 @@ package main
 
 import (
 	"bytes"
-	"context"
 	"encoding/json"
 	"fmt"
-	"net"
+	"math/rand"
 	"net/http"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"time"
@@ -61,77 +61,89 @@ func extractRootFS(imageName, outputDir string) error {
 	return nil
 }
 
-func makeUnixSocketRequest(socketPath, method, endpoint string, body interface{}) (*http.Response, error) {
-	conn, err := net.Dial("unix", socketPath)
-	if err != nil {
-		return nil, fmt.Errorf("failed to connect to unix socket: %w", err)
+func generateShortID(length int) string {
+	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
+	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
+	b := make([]byte, length)
+	for i := range b {
+		b[i] = charset[seededRand.Intn(len(charset))]
 	}
-	defer conn.Close()
+	return string(b)
+}
 
-	client := &http.Client{
-		Transport: &http.Transport{
-			DialContext: func(_ context.Context, _, _ string) (net.Conn, error) {
-				return conn, nil
+func createConfigFile(vmConfig VMConfig, rootfsPath, vsockPath, configFilePath string) error {
+	config := map[string]interface{}{
+		"boot-source": map[string]interface{}{
+			"kernel_image_path": "./bin/vmlinux",
+			"boot_args":         "console=ttyS0 reboot=k panic=1 pci=off init=/fly/init",
+			"initrd_path":       nil,
+		},
+		"drives": []map[string]interface{}{
+			{
+				"drive_id":       "init",
+				"is_root_device": true,
+				"is_read_only":   false,
+				"path_on_host":   "./bin/tmpinit",
 			},
+			{
+				"drive_id":       "rootfs",
+				"is_root_device": false,
+				"is_read_only":   false,
+				"path_on_host":   rootfsPath,
+			},
+		},
+		"machine-config": map[string]interface{}{
+			"vcpu_count":        vmConfig.Config.Guest.CPUs,
+			"mem_size_mib":      vmConfig.Config.Guest.MemoryMB,
+			"smt":               false,
+			"track_dirty_pages": false,
+			"huge_pages":        "None",
+		},
+		"network-interfaces": []map[string]interface{}{
+			{
+				"iface_id":      "eth0",
+				"guest_mac":     "06:00:AC:10:00:02",
+				"host_dev_name": "tap0",
+			},
+		},
+		"vsock": map[string]interface{}{
+			"guest_cid": 3,
+			"uds_path":  vsockPath,
 		},
 	}
 
-	url := "http://unix" + endpoint
-	var reqBody bytes.Buffer
-	if body != nil {
-		if err := json.NewEncoder(&reqBody).Encode(body); err != nil {
-			return nil, fmt.Errorf("failed to encode request body: %w", err)
-		}
-	}
-
-	req, err := http.NewRequest(method, url, &reqBody)
+	configFile, err := os.Create(configFilePath)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
+		return fmt.Errorf("failed to create config file: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
+	defer configFile.Close()
 
-	resp, err := client.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to make request: %w", err)
+	if err := json.NewEncoder(configFile).Encode(config); err != nil {
+		return fmt.Errorf("failed to encode config file: %w", err)
 	}
 
-	return resp, nil
+	return nil
 }
 
-func startFirecrackerInstance(vmConfig VMConfig, rootfsPath, socketPath string) error {
-	cmd := exec.Command("./firecracker", "--api-sock", socketPath)
+func startFirecrackerInstance(vmConfig VMConfig, rootfsPath, socketPath, vsockPath, configFilePath string) error {
+	if err := createConfigFile(vmConfig, rootfsPath, vsockPath, configFilePath); err != nil {
+		return fmt.Errorf("failed to create config file: %w", err)
+	}
+
+	cmd := exec.Command("sudo", "./bin/firecracker", "--api-sock", socketPath, "--config-file", configFilePath)
+	var stdout, stderr bytes.Buffer
+	cmd.Stdout = &stdout
+	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start firecracker process: %w", err)
 	}
-	defer cmd.Process.Kill()
+	defer func() {
+		cmd.Process.Kill()
+		logrus.Infof("Firecracker stdout: %s", stdout.String())
+		logrus.Infof("Firecracker stderr: %s", stderr.String())
+	}()
 
 	time.Sleep(2 * time.Second)
-
-	vmConfigBody := map[string]interface{}{
-		"vcpu_count":   vmConfig.Config.Guest.CPUs,
-		"mem_size_mib": vmConfig.Config.Guest.MemoryMB,
-		"ht_enabled":   false,
-	}
-	if _, err := makeUnixSocketRequest(socketPath, "PUT", "/machine-config", vmConfigBody); err != nil {
-		return fmt.Errorf("failed to set VM configuration: %w", err)
-	}
-
-	driveBody := map[string]interface{}{
-		"drive_id":       "rootfs",
-		"path_on_host":   rootfsPath,
-		"is_root_device": true,
-		"is_read_only":   false,
-	}
-	if _, err := makeUnixSocketRequest(socketPath, "PUT", "/drives/rootfs", driveBody); err != nil {
-		return fmt.Errorf("failed to set root drive: %w", err)
-	}
-
-	actionBody := map[string]interface{}{
-		"action_type": "InstanceStart",
-	}
-	if _, err := makeUnixSocketRequest(socketPath, "PUT", "/actions", actionBody); err != nil {
-		return fmt.Errorf("failed to start firecracker instance: %w", err)
-	}
 
 	return nil
 }
@@ -156,10 +168,12 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	socketPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-%d.socket", time.Now().UnixNano()))
+	socketPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-%s.socket", generateShortID(6)))
+	vsockPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", generateShortID(6)))
+	configFilePath := filepath.Join("/tmp", fmt.Sprintf("firecracker-config-%s.json", generateShortID(6)))
 
-	rootfsPath := filepath.Join(outputDir, "rootfs.img")
-	if err := startFirecrackerInstance(vmConfig, rootfsPath, socketPath); err != nil {
+	rootfsPath := filepath.Join(outputDir, "image.ext4")
+	if err := startFirecrackerInstance(vmConfig, rootfsPath, socketPath, vsockPath, configFilePath); err != nil {
 		logrus.WithError(err).Error("Failed to start Firecracker instance")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
