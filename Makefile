@@ -1,4 +1,3 @@
-
 # Go parameters
 GOCMD=go
 GOBUILD=$(GOCMD) build
@@ -7,7 +6,7 @@ GOFMT=$(GOCMD) fmt
 BINARY_NAME=machine
 
 # Targets
-.PHONY: all test build release clean
+.PHONY: all test build release clean fmt run
 
 all: test build
 
@@ -25,3 +24,6 @@ clean:
 
 fmt:
 	$(GOFMT) ./...
+
+run: build
+	./$(BINARY_NAME)

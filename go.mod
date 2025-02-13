@@ -3,9 +3,6 @@ module machine
 go 1.23.0
 
 require (
-	github.com/diskfs/go-diskfs v1.5.0
-	github.com/firecracker-microvm/firecracker-go-sdk v1.0.0
-	github.com/google/go-containerregistry v0.20.3
 	github.com/gorilla/mux v1.8.1
 	github.com/sirupsen/logrus v1.9.4-0.20230606125235-dd1b4c2e81af
 )
