@@ -1,14 +1,17 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
 	"math/rand"
+	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/gorilla/mux"
@@ -33,6 +36,12 @@ type VMConfig struct {
 		} `json:"guest"`
 	} `json:"config"`
 }
+
+type ExecCommand struct {
+	Cmd []string `json:"cmd"`
+}
+
+var vsockPath string
 
 func runCommand(name string, args ...string) error {
 	cmd := exec.Command(name, args...)
@@ -130,22 +139,75 @@ func startFirecrackerInstance(vmConfig VMConfig, rootfsPath, socketPath, vsockPa
 		return fmt.Errorf("failed to create config file: %w", err)
 	}
 
-	cmd := exec.Command("sudo", "./bin/firecracker", "--api-sock", socketPath, "--config-file", configFilePath)
+	logrus.Info("Starting Firecracker process...")
+	cmd := exec.Command("sudo", "./bin/firecracker", "--api-sock", socketPath, "--config-file", configFilePath, "--log-path", "./bin/firecracker.log", "--level", "Debug", "--show-level", "--show-log-origin")
+	logrus.Infof("Executing command: %s %v", cmd.Path, cmd.Args)
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start firecracker process: %w", err)
 	}
-	defer func() {
-		cmd.Process.Kill()
-		logrus.Infof("Firecracker stdout: %s", stdout.String())
-		logrus.Infof("Firecracker stderr: %s", stderr.String())
-	}()
-
-	time.Sleep(2 * time.Second)
+	logrus.Info("Firecracker process started.")
 
 	return nil
+}
+
+func communicateWithVsock(vsockPath string, execCmd ExecCommand) (string, error) {
+	conn, err := net.Dial("unix", vsockPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to vsock: %w", err)
+	}
+	defer conn.Close()
+
+	connectRequest := "CONNECT 10000\n"
+	if _, err := conn.Write([]byte(connectRequest)); err != nil {
+		return "", fmt.Errorf("failed to send CONNECT request: %w", err)
+	}
+
+	reader := bufio.NewReader(conn)
+	response, err := reader.ReadString('\n')
+	if err != nil {
+		return "", fmt.Errorf("failed to read CONNECT response: %w", err)
+	}
+	logrus.Infof("CONNECT response: %s", response)
+
+	cmdJSON, err := json.Marshal(execCmd)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal exec command: %w", err)
+	}
+	postRequest := fmt.Sprintf("POST /v1/exec HTTP/1.1\r\n"+
+		"Host: 3:10000\r\n"+
+		"Content-Type: application/json\r\n"+
+		"Content-Length: %d\r\n"+
+		"\r\n"+
+		"%s\r\n", len(cmdJSON), cmdJSON)
+	if _, err := conn.Write([]byte(postRequest)); err != nil {
+		return "", fmt.Errorf("failed to send POST request: %w", err)
+	}
+
+	postResponse, err := readHttpResponse(reader)
+	if err != nil {
+		return "", fmt.Errorf("failed to read POST response: %w", err)
+	}
+	logrus.Infof("POST response: %s", postResponse)
+
+	return postResponse, nil
+}
+
+func readHttpResponse(reader *bufio.Reader) (string, error) {
+	var response bytes.Buffer
+	for {
+		line, err := reader.ReadString('\n')
+		if err != nil {
+			return "", err
+		}
+		response.WriteString(line)
+		if strings.TrimSpace(line) == "" {
+			break
+		}
+	}
+	return response.String(), nil
 }
 
 func startVMHandler(w http.ResponseWriter, r *http.Request) {
@@ -169,7 +231,7 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	socketPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-%s.socket", generateShortID(6)))
-	vsockPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", generateShortID(6)))
+	vsockPath = filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", generateShortID(6)))
 	configFilePath := filepath.Join("/tmp", fmt.Sprintf("firecracker-config-%s.json", generateShortID(6)))
 
 	rootfsPath := filepath.Join(outputDir, "image.ext4")
@@ -180,7 +242,31 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	logrus.Infof("VM started with config: %+v", vmConfig)
+	logrus.Infof("vsockPath: %s", vsockPath)
 	fmt.Fprintf(w, "VM started with config: %+v\n", vmConfig)
+}
+
+func execCommandHandler(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var execCmd ExecCommand
+	if err := json.NewDecoder(r.Body).Decode(&execCmd); err != nil {
+		logrus.WithError(err).Error("Failed to decode JSON")
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	response, err := communicateWithVsock(vsockPath, execCmd)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to communicate with vsock")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Write([]byte(response))
 }
 
 func main() {
@@ -189,6 +275,7 @@ func main() {
 
 	r := mux.NewRouter()
 	r.HandleFunc("/start-vm", startVMHandler).Methods("POST")
+	r.HandleFunc("/exec", execCommandHandler).Methods("POST")
 
 	logrus.Info("Server is listening on port 8080...")
 	if err := http.ListenAndServe(":8080", r); err != nil {
