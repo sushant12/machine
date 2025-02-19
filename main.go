@@ -216,13 +216,6 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	outputDir := "./output"
-	if err := extractRootFS(vmConfig.Config.Image, outputDir); err != nil {
-		logrus.WithError(err).Error("Failed to extract rootfs")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	machineID, err := generateNanoID()
 	if err != nil {
 		logrus.WithError(err).Error("Failed to generate machine ID")
@@ -233,13 +226,23 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 	socketPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-%s.socket", machineID))
 	vsockPath = filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", machineID))
 	configFilePath := filepath.Join("/tmp", fmt.Sprintf("firecracker-config-%s.json", machineID))
+	rootfsPath := filepath.Join("./output", "image.ext4")
 
-	rootfsPath := filepath.Join(outputDir, "image.ext4")
-	if err := startFirecrackerInstance(vmConfig, rootfsPath, socketPath, vsockPath, configFilePath); err != nil {
-		logrus.WithError(err).Error("Failed to start Firecracker instance")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	go func() {
+		outputDir := "./output"
+		if err := extractRootFS(vmConfig.Config.Image, outputDir); err != nil {
+			logrus.WithError(err).Error("Failed to extract rootfs")
+			return
+		}
+
+		if err := startFirecrackerInstance(vmConfig, rootfsPath, socketPath, vsockPath, configFilePath); err != nil {
+			logrus.WithError(err).Error("Failed to start Firecracker instance")
+			return
+		}
+
+		logrus.Infof("VM started with config: %+v", vmConfig)
+		logrus.Infof("vsockPath: %s", vsockPath)
+	}()
 
 	response := map[string]string{
 		"id":    machineID,
@@ -254,8 +257,6 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	w.Write(responseJSON)
-	logrus.Infof("VM started with config: %+v", vmConfig)
-	logrus.Infof("vsockPath: %s", vsockPath)
 }
 
 func execCommandHandler(w http.ResponseWriter, r *http.Request) {
