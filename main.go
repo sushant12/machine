@@ -5,16 +5,15 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/gorilla/mux"
+	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/sirupsen/logrus"
 )
 
@@ -70,14 +69,8 @@ func extractRootFS(imageName, outputDir string) error {
 	return nil
 }
 
-func generateShortID(length int) string {
-	const charset = "abcdefghijklmnopqrstuvwxyz0123456789"
-	seededRand := rand.New(rand.NewSource(time.Now().UnixNano()))
-	b := make([]byte, length)
-	for i := range b {
-		b[i] = charset[seededRand.Intn(len(charset))]
-	}
-	return string(b)
+func generateNanoID() (string, error) {
+	return gonanoid.New()
 }
 
 func createConfigFile(vmConfig VMConfig, rootfsPath, vsockPath, configFilePath string) error {
@@ -230,9 +223,16 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	socketPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-%s.socket", generateShortID(6)))
-	vsockPath = filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", generateShortID(6)))
-	configFilePath := filepath.Join("/tmp", fmt.Sprintf("firecracker-config-%s.json", generateShortID(6)))
+	machineID, err := generateNanoID()
+	if err != nil {
+		logrus.WithError(err).Error("Failed to generate machine ID")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	socketPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-%s.socket", machineID))
+	vsockPath = filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", machineID))
+	configFilePath := filepath.Join("/tmp", fmt.Sprintf("firecracker-config-%s.json", machineID))
 
 	rootfsPath := filepath.Join(outputDir, "image.ext4")
 	if err := startFirecrackerInstance(vmConfig, rootfsPath, socketPath, vsockPath, configFilePath); err != nil {
@@ -241,9 +241,21 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	response := map[string]string{
+		"id":    machineID,
+		"state": "created",
+	}
+	responseJSON, err := json.Marshal(response)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to marshal response JSON")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(responseJSON)
 	logrus.Infof("VM started with config: %+v", vmConfig)
 	logrus.Infof("vsockPath: %s", vsockPath)
-	fmt.Fprintf(w, "VM started with config: %+v\n", vmConfig)
 }
 
 func execCommandHandler(w http.ResponseWriter, r *http.Request) {
@@ -251,6 +263,10 @@ func execCommandHandler(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
 		return
 	}
+
+	vars := mux.Vars(r)
+	machineID := vars["machine_id"]
+	vsockPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", machineID))
 
 	var execCmd ExecCommand
 	if err := json.NewDecoder(r.Body).Decode(&execCmd); err != nil {
@@ -275,7 +291,7 @@ func main() {
 
 	r := mux.NewRouter()
 	r.HandleFunc("/start-vm", startVMHandler).Methods("POST")
-	r.HandleFunc("/exec", execCommandHandler).Methods("POST")
+	r.HandleFunc("/exec/{machine_id}", execCommandHandler).Methods("POST")
 
 	logrus.Info("Server is listening on port 8080...")
 	if err := http.ListenAndServe(":8080", r); err != nil {
