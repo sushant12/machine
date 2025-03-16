@@ -13,7 +13,7 @@ Spin Firecracker VMs
 1. Clone the repository:
 
     ```sh
-    git clone https://github.com/yourusername/machine.git
+    git clone https://github.com/sushant12/machine.git
     cd machine
     ```
 
@@ -73,6 +73,14 @@ Spin Firecracker VMs
         }
     }' http://localhost:8080/start-vm
     ```
+
+## API Documentation
+
+The API documentation is available through Swagger UI. After starting the server, you can access the documentation at:
+
+- Swagger UI: `http://localhost:8080/swagger/index.html`
+
+This provides an interactive interface to explore and test all available API endpoints.
 
 ## Makefile Targets
 
