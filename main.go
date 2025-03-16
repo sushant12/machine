@@ -12,9 +12,13 @@ import (
 	"path/filepath"
 	"strings"
 
+	_ "github.com/sushant12/machine/docs"
+
 	"github.com/gorilla/mux"
 	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/sirupsen/logrus"
+	httpSwagger "github.com/swaggo/http-swagger"
+	_ "github.com/swaggo/swag"
 )
 
 type VMConfig struct {
@@ -29,7 +33,6 @@ type VMConfig struct {
 			RawValue  string `json:"raw_value"`
 		} `json:"files"`
 		Guest struct {
-			CPUKind  string `json:"cpu_kind"`
 			CPUs     int    `json:"cpus"`
 			MemoryMB int    `json:"memory_mb"`
 		} `json:"guest"`
@@ -203,6 +206,15 @@ func readHttpResponse(reader *bufio.Reader) (string, error) {
 	return response.String(), nil
 }
 
+// @Summary Start a new Firecracker VM
+// @Description Starts a new Firecracker VM with the provided configuration
+// @Accept json
+// @Produce json
+// @Param vmConfig body VMConfig true "VM Configuration"
+// @Success 200 {object} map[string]string
+// @Failure 400 {string} string "Bad Request"
+// @Failure 500 {string} string "Internal Server Error"
+// @Router /start-vm [post]
 func startVMHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -259,6 +271,16 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write(responseJSON)
 }
 
+// @Summary Execute a command in a VM
+// @Description Executes a command in a running VM
+// @Accept json
+// @Produce plain
+// @Param machine_id path string true "Machine ID"
+// @Param execCmd body ExecCommand true "Command to execute"
+// @Success 200 {string} string "Command Output"
+// @Failure 400 {string} string "Bad Request"
+// @Failure 500 {string} string "Internal Server Error"
+// @Router /exec/{machine_id} [post]
 func execCommandHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -286,6 +308,11 @@ func execCommandHandler(w http.ResponseWriter, r *http.Request) {
 	w.Write([]byte(response))
 }
 
+// @title Firecracker VM API
+// @version 1.0
+// @description API for managing and controlling Firecracker VMs
+// @host localhost:8080
+// @BasePath /
 func main() {
 	logrus.SetFormatter(&logrus.JSONFormatter{})
 	logrus.SetLevel(logrus.InfoLevel)
@@ -293,8 +320,16 @@ func main() {
 	r := mux.NewRouter()
 	r.HandleFunc("/start-vm", startVMHandler).Methods("POST")
 	r.HandleFunc("/exec/{machine_id}", execCommandHandler).Methods("POST")
+	
+	r.PathPrefix("/swagger/").Handler(httpSwagger.Handler(
+		httpSwagger.URL("/swagger/doc.json"),
+		httpSwagger.DeepLinking(true),
+		httpSwagger.DocExpansion("none"),
+		httpSwagger.DomID("swagger-ui"),
+	))
 
 	logrus.Info("Server is listening on port 8080...")
+	logrus.Info("Swagger documentation available at http://localhost:8080/swagger/")
 	if err := http.ListenAndServe(":8080", r); err != nil {
 		logrus.WithError(err).Fatal("Failed to start server")
 	}

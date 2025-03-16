@@ -1,0 +1,115 @@
+basePath: /
+definitions:
+  main.ExecCommand:
+    properties:
+      cmd:
+        items:
+          type: string
+        type: array
+    type: object
+  main.VMConfig:
+    properties:
+      config:
+        properties:
+          auto_destroy:
+            type: boolean
+          files:
+            items:
+              properties:
+                guest_path:
+                  type: string
+                raw_value:
+                  type: string
+              type: object
+            type: array
+          guest:
+            properties:
+              cpu_kind:
+                type: string
+              cpus:
+                type: integer
+              memory_mb:
+                type: integer
+            type: object
+          image:
+            type: string
+          init:
+            properties:
+              exec:
+                items:
+                  type: string
+                type: array
+            type: object
+        type: object
+    type: object
+host: localhost:8080
+info:
+  contact: {}
+  description: API for managing and controlling Firecracker VMs
+  title: Firecracker VM API
+  version: "1.0"
+paths:
+  /exec/{machine_id}:
+    post:
+      consumes:
+      - application/json
+      description: Executes a command in a running VM
+      parameters:
+      - description: Machine ID
+        in: path
+        name: machine_id
+        required: true
+        type: string
+      - description: Command to execute
+        in: body
+        name: execCmd
+        required: true
+        schema:
+          $ref: '#/definitions/main.ExecCommand'
+      produces:
+      - text/plain
+      responses:
+        "200":
+          description: Command Output
+          schema:
+            type: string
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Execute a command in a VM
+  /start-vm:
+    post:
+      consumes:
+      - application/json
+      description: Starts a new Firecracker VM with the provided configuration
+      parameters:
+      - description: VM Configuration
+        in: body
+        name: vmConfig
+        required: true
+        schema:
+          $ref: '#/definitions/main.VMConfig'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Start a new Firecracker VM
+swagger: "2.0"
