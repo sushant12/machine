@@ -1,0 +1,177 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "description": "API for managing and controlling Firecracker VMs",
+        "title": "Firecracker VM API",
+        "contact": {},
+        "version": "1.0"
+    },
+    "host": "localhost:8080",
+    "basePath": "/",
+    "paths": {
+        "/exec/{machine_id}": {
+            "post": {
+                "description": "Executes a command in a running VM",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "text/plain"
+                ],
+                "summary": "Execute a command in a VM",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Machine ID",
+                        "name": "machine_id",
+                        "in": "path",
+                        "required": true
+                    },
+                    {
+                        "description": "Command to execute",
+                        "name": "execCmd",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.ExecCommand"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Command Output",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/start-vm": {
+            "post": {
+                "description": "Starts a new Firecracker VM with the provided configuration",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Start a new Firecracker VM",
+                "parameters": [
+                    {
+                        "description": "VM Configuration",
+                        "name": "vmConfig",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.VMConfig"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "definitions": {
+        "main.ExecCommand": {
+            "type": "object",
+            "properties": {
+                "cmd": {
+                    "type": "array",
+                    "items": {
+                        "type": "string"
+                    }
+                }
+            }
+        },
+        "main.VMConfig": {
+            "type": "object",
+            "properties": {
+                "config": {
+                    "type": "object",
+                    "properties": {
+                        "auto_destroy": {
+                            "type": "boolean"
+                        },
+                        "files": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "guest_path": {
+                                        "type": "string"
+                                    },
+                                    "raw_value": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        },
+                        "guest": {
+                            "type": "object",
+                            "properties": {
+                                "cpu_kind": {
+                                    "type": "string"
+                                },
+                                "cpus": {
+                                    "type": "integer"
+                                },
+                                "memory_mb": {
+                                    "type": "integer"
+                                }
+                            }
+                        },
+                        "image": {
+                            "type": "string"
+                        },
+                        "init": {
+                            "type": "object",
+                            "properties": {
+                                "exec": {
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string"
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
