@@ -60,7 +60,7 @@ func runCommand(name string, args ...string) error {
 
 func extractRootFS(imageName, outputDir string) error {
 	dockerCmd := []string{
-		"run", "--privileged",
+		"run", "--rm", "--privileged",
 		"-v", "/var/run/docker.sock:/var/run/docker.sock",
 		"-v", fmt.Sprintf("%s:/output", outputDir),
 		"anyfiddle/firecracker-rootfs-builder", imageName,
@@ -73,7 +73,7 @@ func extractRootFS(imageName, outputDir string) error {
 }
 
 func generateNanoID() (string, error) {
-	return gonanoid.New()
+	return gonanoid.Generate("0123456789", 7)
 }
 
 func createConfigFile(vmConfig VMConfig, rootfsPath, vsockPath, configFilePath string) error {
@@ -214,7 +214,7 @@ func readHttpResponse(reader *bufio.Reader) (string, error) {
 // @Success 200 {object} map[string]string
 // @Failure 400 {string} string "Bad Request"
 // @Failure 500 {string} string "Internal Server Error"
-// @Router /start-vm [post]
+// @Router /create [post]
 func startVMHandler(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
@@ -231,6 +231,14 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 	machineID, err := generateNanoID()
 	if err != nil {
 		logrus.WithError(err).Error("Failed to generate machine ID")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	// Create machine-specific directory
+	machineDir := filepath.Join(".", machineID)
+	if err := os.MkdirAll(machineDir, 0755); err != nil {
+		logrus.WithError(err).Error("Failed to create machine directory")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -318,7 +326,7 @@ func main() {
 	logrus.SetLevel(logrus.InfoLevel)
 
 	r := mux.NewRouter()
-	r.HandleFunc("/start-vm", startVMHandler).Methods("POST")
+	r.HandleFunc("/create", startVMHandler).Methods("POST")
 	r.HandleFunc("/exec/{machine_id}", execCommandHandler).Methods("POST")
 	
 	r.PathPrefix("/swagger/").Handler(httpSwagger.Handler(

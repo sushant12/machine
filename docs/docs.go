@@ -15,6 +15,52 @@ const docTemplate = `{
     "host": "{{.Host}}",
     "basePath": "{{.BasePath}}",
     "paths": {
+        "/create": {
+            "post": {
+                "description": "Starts a new Firecracker VM with the provided configuration",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Start a new Firecracker VM",
+                "parameters": [
+                    {
+                        "description": "VM Configuration",
+                        "name": "vmConfig",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/main.VMConfig"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OK",
+                        "schema": {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
         "/exec/{machine_id}": {
             "post": {
                 "description": "Executes a command in a running VM",
@@ -48,52 +94,6 @@ const docTemplate = `{
                         "description": "Command Output",
                         "schema": {
                             "type": "string"
-                        }
-                    },
-                    "400": {
-                        "description": "Bad Request",
-                        "schema": {
-                            "type": "string"
-                        }
-                    },
-                    "500": {
-                        "description": "Internal Server Error",
-                        "schema": {
-                            "type": "string"
-                        }
-                    }
-                }
-            }
-        },
-        "/start-vm": {
-            "post": {
-                "description": "Starts a new Firecracker VM with the provided configuration",
-                "consumes": [
-                    "application/json"
-                ],
-                "produces": [
-                    "application/json"
-                ],
-                "summary": "Start a new Firecracker VM",
-                "parameters": [
-                    {
-                        "description": "VM Configuration",
-                        "name": "vmConfig",
-                        "in": "body",
-                        "required": true,
-                        "schema": {
-                            "$ref": "#/definitions/main.VMConfig"
-                        }
-                    }
-                ],
-                "responses": {
-                    "200": {
-                        "description": "OK",
-                        "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
                         }
                     },
                     "400": {
@@ -150,9 +150,6 @@ const docTemplate = `{
                         "guest": {
                             "type": "object",
                             "properties": {
-                                "cpu_kind": {
-                                    "type": "string"
-                                },
                                 "cpus": {
                                     "type": "integer"
                                 },

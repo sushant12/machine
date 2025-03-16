@@ -24,8 +24,6 @@ definitions:
             type: array
           guest:
             properties:
-              cpu_kind:
-                type: string
               cpus:
                 type: integer
               memory_mb:
@@ -49,6 +47,36 @@ info:
   title: Firecracker VM API
   version: "1.0"
 paths:
+  /create:
+    post:
+      consumes:
+      - application/json
+      description: Starts a new Firecracker VM with the provided configuration
+      parameters:
+      - description: VM Configuration
+        in: body
+        name: vmConfig
+        required: true
+        schema:
+          $ref: '#/definitions/main.VMConfig'
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: OK
+          schema:
+            additionalProperties:
+              type: string
+            type: object
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Start a new Firecracker VM
   /exec/{machine_id}:
     post:
       consumes:
@@ -82,34 +110,4 @@ paths:
           schema:
             type: string
       summary: Execute a command in a VM
-  /start-vm:
-    post:
-      consumes:
-      - application/json
-      description: Starts a new Firecracker VM with the provided configuration
-      parameters:
-      - description: VM Configuration
-        in: body
-        name: vmConfig
-        required: true
-        schema:
-          $ref: '#/definitions/main.VMConfig'
-      produces:
-      - application/json
-      responses:
-        "200":
-          description: OK
-          schema:
-            additionalProperties:
-              type: string
-            type: object
-        "400":
-          description: Bad Request
-          schema:
-            type: string
-        "500":
-          description: Internal Server Error
-          schema:
-            type: string
-      summary: Start a new Firecracker VM
 swagger: "2.0"
