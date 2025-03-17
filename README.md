@@ -31,13 +31,14 @@ Spin Firecracker VMs
     sudo visudo
     ```
 
-2. Add the following line to allow your user to run the Firecracker binary without a password:
+2. Add the following lines to allow your user to run the Firecracker binary and mkext4 without a password:
 
     ```sh
     yourusername ALL=(ALL) NOPASSWD: /path/to/bin/firecracker
+    yourusername ALL=(ALL) NOPASSWD: /path/to/bin/mkext4
     ```
 
-    Replace `yourusername` with your actual username and `/path/to/bin/firecracker` with the full path to the Firecracker binary.
+    Replace `yourusername` with your actual username, `/path/to/bin/firecracker` with the full path to the Firecracker binary, and `/path/to/bin/mkext4` with the full path to the mkext4 binary.
 
 3. Save and close the `sudoers` file.
 

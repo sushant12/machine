@@ -64,6 +64,7 @@ func generateNanoID() (string, error) {
 }
 
 func createConfigFile(vmConfig VMConfig, rootfsPath, vsockPath, configFilePath string) error {
+
 	config := map[string]interface{}{
 		"boot-source": map[string]interface{}{
 			"kernel_image_path": "./bin/vmlinux",
@@ -245,7 +246,18 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 	socketPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-%s.socket", machineID))
 	vsockPath = filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", machineID))
 	configFilePath := filepath.Join("/tmp", fmt.Sprintf("firecracker-config-%s.json", machineID))
-	rootfsPath := filepath.Join("./output", "image.ext4")
+
+	if _, err := os.Create(socketPath); err != nil {
+		logrus.WithError(err).Error("Failed to create socket file")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if _, err := os.Create(vsockPath); err != nil {
+		logrus.WithError(err).Error("Failed to create vsock file")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
 	go func() {
 		if err := rootfs.ExtractFromImage(vmConfig.Config.Image, machineDir+"/rootfs"); err != nil {
@@ -253,7 +265,7 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		if err := createExt4Image(machineDir, machineDir); err != nil {
+		if err := createExt4Image(machineDir+"/rootfs", machineDir+"/rootfs.ext4"); err != nil {
 			logrus.WithError(err).Error("Failed to create ext4 image")
 			return
 		}
@@ -263,7 +275,7 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 			logrus.WithError(err).Error("Failed to clean up rootfs directory")
 		}
 
-		if err := startFirecrackerInstance(vmConfig, rootfsPath, socketPath, vsockPath, configFilePath); err != nil {
+		if err := startFirecrackerInstance(vmConfig, machineDir+"/rootfs.ext4", socketPath, vsockPath, configFilePath); err != nil {
 			logrus.WithError(err).Error("Failed to start Firecracker instance")
 			return
 		}
