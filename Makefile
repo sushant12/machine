@@ -1,29 +1,38 @@
-# Go parameters
-GOCMD=go
-GOBUILD=$(GOCMD) build
-GOTEST=$(GOCMD) test
-GOFMT=$(GOCMD) fmt
-BINARY_NAME=machine
+GO=go
+BUILD_DIR=bin
+MAIN_BINARY=machine
+MKEXT4_BINARY=mkext4
 
-# Targets
-.PHONY: all test build release clean fmt run
+.PHONY: all clean build build-main build-ext4 test fmt install run
 
-all: test build
+all: build
+
+build: build-main build-ext4
+
+build-main: $(BUILD_DIR)/$(MAIN_BINARY)
+
+build-ext4: $(BUILD_DIR)/$(MKEXT4_BINARY)
+
+$(BUILD_DIR)/$(MAIN_BINARY):
+	@mkdir -p $(BUILD_DIR)
+	$(GO) build -o $@ .
+
+$(BUILD_DIR)/$(MKEXT4_BINARY):
+	@mkdir -p $(BUILD_DIR)
+	$(GO) build -o $@ ./cmd/mkext4
 
 test:
-	$(GOTEST) -v ./...
-
-build:
-	$(GOBUILD) -o $(BINARY_NAME) .
-
-release: clean
-	$(GOBUILD) -o $(BINARY_NAME) .
-
-clean:
-	if [ -f $(BINARY_NAME) ]; then rm $(BINARY_NAME); fi
+	$(GO) test -v ./...
 
 fmt:
-	$(GOFMT) ./...
+	$(GO) fmt ./...
+
+clean:
+	@rm -f ./$(BUILD_DIR)/$(MAIN_BINARY)
+	@rm -f ./$(BUILD_DIR)/$(MKEXT4_BINARY)
+
+install: build
+	install -m 755 $(BUILD_DIR)/$(MKEXT4_BINARY) /usr/local/bin/$(MKEXT4_BINARY)
 
 run: build
-	./$(BINARY_NAME)
+	./$(BUILD_DIR)/$(MAIN_BINARY)
