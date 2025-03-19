@@ -4,7 +4,6 @@ Spin Firecracker VMs
 
 ## Prerequisites
 
-- Docker
 - Firecracker
 - Go (for building the project)
 - Enable `vhost/vsock` in Ubuntu:
