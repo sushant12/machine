@@ -64,7 +64,20 @@ func generateNanoID() (string, error) {
 	return gonanoid.Generate("0123456789", 7)
 }
 
+func generateMACAddress() string {
+	// Use 02 as the first octet to ensure it's a locally administered address
+	id, _ := generateNanoID()
+	return fmt.Sprintf("02:00:%02x:%02x:%02x:%02x", 
+		id[0]&0xFF, id[1]&0xFF, id[2]&0xFF, id[3]&0xFF)
+}
+
+func getTapDeviceName(machineID string) string {
+	return fmt.Sprintf("tap%s", machineID)
+}
+
 func createConfigFile(vmConfig VMConfig, rootfsPath, vsockPath, configFilePath string) error {
+	machineID := filepath.Base(rootfsPath)
+	
 	config := map[string]interface{}{
 		"boot-source": map[string]interface{}{
 			"kernel_image_path": "./bin/vmlinux",
@@ -95,8 +108,8 @@ func createConfigFile(vmConfig VMConfig, rootfsPath, vsockPath, configFilePath s
 		"network-interfaces": []map[string]interface{}{
 			{
 				"iface_id":      "eth0",
-				"guest_mac":     "06:00:AC:10:00:02",
-				"host_dev_name": "tap0",
+				"guest_mac":     generateMACAddress(),
+				"host_dev_name": getTapDeviceName(machineID),
 			},
 		},
 		"vsock": map[string]interface{}{
