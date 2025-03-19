@@ -7,6 +7,27 @@ Spin Firecracker VMs
 - Docker
 - Firecracker
 - Go (for building the project)
+- Enable `vhost/vsock` in Ubuntu:
+
+    ```sh
+    sudo modprobe vhost_vsock
+    sudo modprobe vsock
+    ```
+
+    To check if it is enabled
+
+    ```sh
+    lsmod | grep vsock
+    lsmod | grep vhost
+    ls -l /dev/vsock /dev/vhost-vsock
+    ```
+
+   To ensure it is loaded on every reboot, add `vhost_vsock` to `/etc/modules`:
+
+    ```sh
+    echo vhost_vsock | sudo tee -a /etc/modules
+    echo vsock | sudo tee -a /etc/modules
+    ```
 
 ## Installation
 
