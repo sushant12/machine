@@ -87,7 +87,6 @@ Spin Firecracker VMs
                 }
             ],
             "guest": {
-                "cpu_kind": "shared",
                 "cpus": 2,
                 "memory_mb": 2048
             }

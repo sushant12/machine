@@ -5,15 +5,17 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"net"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	_ "github.com/sushant12/machine/docs"
 
+	"github.com/firecracker-microvm/firecracker-go-sdk/vsock"
 	"github.com/gorilla/mux"
 	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/sirupsen/logrus"
@@ -89,13 +91,13 @@ func createConfigFile(vmConfig VMConfig, rootfsPath, vsockPath, configFilePath s
 				"drive_id":       "init",
 				"is_root_device": true,
 				"is_read_only":   false,
-				"path_on_host":   "./"+ rootfsPath + "/tmpinit", 
+				"path_on_host":   "/home/sush/Documents/machine/"+ rootfsPath + "/tmpinit", 
 			},
 			{
 				"drive_id":       "rootfs",
 				"is_root_device": false,
 				"is_read_only":   false,
-				"path_on_host":   "./" + rootfsPath+"/rootfs.ext4",
+				"path_on_host":   "/home/sush/Documents/machine/" + rootfsPath+"/rootfs.ext4",
 			},
 		},
 		"machine-config": map[string]interface{}{
@@ -151,23 +153,13 @@ func startFirecrackerInstance(vmConfig VMConfig, rootfsPath, socketPath, vsockPa
 }
 
 func communicateWithVsock(vsockPath string, execCmd ExecCommand) (string, error) {
-	conn, err := net.Dial("unix", vsockPath)
+	conn, err := vsock.Dial(vsockPath, 10000)
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to vsock: %w", err)
 	}
 	defer conn.Close()
 
-	connectRequest := "CONNECT 10000\n"
-	if _, err := conn.Write([]byte(connectRequest)); err != nil {
-		return "", fmt.Errorf("failed to send CONNECT request: %w", err)
-	}
-
 	reader := bufio.NewReader(conn)
-	response, err := reader.ReadString('\n')
-	if err != nil {
-		return "", fmt.Errorf("failed to read CONNECT response: %w", err)
-	}
-	logrus.Infof("CONNECT response: %s", response)
 
 	cmdJSON, err := json.Marshal(execCmd)
 	if err != nil {
@@ -183,28 +175,59 @@ func communicateWithVsock(vsockPath string, execCmd ExecCommand) (string, error)
 		return "", fmt.Errorf("failed to send POST request: %w", err)
 	}
 
-	postResponse, err := readHttpResponse(reader)
+	_, body, err := readHttpResponse(reader)
 	if err != nil {
 		return "", fmt.Errorf("failed to read POST response: %w", err)
 	}
-	logrus.Infof("POST response: %s", postResponse)
+	logrus.Infof("POST response: %s", body)
 
-	return postResponse, nil
+	return body, nil
 }
 
-func readHttpResponse(reader *bufio.Reader) (string, error) {
-	var response bytes.Buffer
+func readHttpResponse(reader *bufio.Reader) (string, string, error) {
+	var headers bytes.Buffer
+	var contentLength int
+
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
-		response.WriteString(line)
+		
+		headers.WriteString(line)
+		
+		if strings.HasPrefix(strings.ToLower(line), "content-length:") {
+			parts := strings.Split(line, ":")
+			if len(parts) == 2 {
+				length, err := strconv.Atoi(strings.TrimSpace(parts[1]))
+				if err == nil {
+					contentLength = length
+				}
+			}
+		}
+		
 		if strings.TrimSpace(line) == "" {
 			break
 		}
 	}
-	return response.String(), nil
+
+	var body string
+	if contentLength > 0 {
+		bodyBytes := make([]byte, contentLength)
+		_, err := io.ReadFull(reader, bodyBytes)
+		if err != nil {
+			return headers.String(), "", err
+		}
+		body = string(bodyBytes)
+	} else {
+		bodyBytes, err := io.ReadAll(reader)
+		if err != nil {
+			return headers.String(), "", err
+		}
+		body = string(bodyBytes)
+	}
+
+	return headers.String(), body, nil
 }
 
 func createExt4Image(machineDir, outputPath string) error {
