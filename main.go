@@ -141,9 +141,9 @@ func startFirecrackerInstance(vmConfig VMConfig, rootfsPath, socketPath, vsockPa
 	logrus.Info("Starting Firecracker process...")
 	cmd := exec.Command("sudo", "./bin/firecracker", "--api-sock", socketPath, "--config-file", configFilePath, "--log-path", "./"+ rootfsPath+"/firecracker.log", "--level", "Debug", "--show-level", "--show-log-origin")
 	logrus.Infof("Executing command: %s %v", cmd.Path, cmd.Args)
-	var stdout, stderr bytes.Buffer
-	cmd.Stdout = &stdout
-	cmd.Stderr = &stderr
+	// Redirect Firecracker logs to the console
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("failed to start firecracker process: %w", err)
 	}

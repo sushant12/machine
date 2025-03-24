@@ -43,6 +43,25 @@ func extractLayerToRootFS(layer io.ReadCloser, outputDir string) error {
 				return fmt.Errorf("writing file: %w", err)
 			}
 			file.Close()
+			
+			if err := os.Chmod(path, os.FileMode(header.Mode)); err != nil {
+				return fmt.Errorf("setting file permissions: %w", err)
+			}
+		case tar.TypeSymlink:
+			dir := filepath.Dir(path)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				return fmt.Errorf("creating parent directory for symlink: %w", err)
+			}
+			
+			if _, err := os.Lstat(path); err == nil {
+				if err := os.Remove(path); err != nil {
+					return fmt.Errorf("removing existing file before creating symlink: %w", err)
+				}
+			}
+			
+			if err := os.Symlink(header.Linkname, path); err != nil {
+				return fmt.Errorf("creating symlink %s -> %s: %w", path, header.Linkname, err)
+			}
 		}
 	}
 	return nil
