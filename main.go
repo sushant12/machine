@@ -47,6 +47,101 @@ type ExecCommand struct {
 	Cmd []string `json:"cmd"`
 }
 
+type ExecResponse struct {
+	Output string `json:"output"`
+}
+
+type SysInfo struct {
+	Memory       Memory                `json:"memory"`
+	LoadAverage  [3]float32            `json:"load_average"`
+	CPUs         map[int]CPU           `json:"cpus"`
+	Disks        []DiskStat            `json:"disks"`
+	Net          []NetworkDevice       `json:"net"`
+	FileFD       FileFD                `json:"filefd"`
+}
+
+type Memory struct {
+	MemTotal      uint64  `json:"mem_total"`
+	MemFree       uint64  `json:"mem_free"`
+	MemAvailable  *uint64 `json:"mem_available,omitempty"`
+	Buffers       uint64  `json:"buffers"`
+	Cached        uint64  `json:"cached"`
+	SwapCached    uint64  `json:"swap_cached"`
+	Active        uint64  `json:"active"`
+	Inactive      uint64  `json:"inactive"`
+	SwapTotal     uint64  `json:"swap_total"`
+	SwapFree      uint64  `json:"swap_free"`
+	Dirty         uint64  `json:"dirty"`
+	Writeback     uint64  `json:"writeback"`
+	Slab          uint64  `json:"slab"`
+	Shmem         *uint64 `json:"shmem,omitempty"`
+	VmallocTotal  uint64  `json:"vmalloc_total"`
+	VmallocUsed   uint64  `json:"vmalloc_used"`
+	VmallocChunk  uint64  `json:"vmalloc_chunk"`
+}
+
+type CPU struct {
+	User       float32  `json:"user"`
+	Nice       float32  `json:"nice"`
+	System     float32  `json:"system"`
+	Idle       float32  `json:"idle"`
+	IOWait     *float32 `json:"iowait,omitempty"`
+	IRQ        *float32 `json:"irq,omitempty"`
+	SoftIRQ    *float32 `json:"softirq,omitempty"`
+	Steal      *float32 `json:"steal,omitempty"`
+	Guest      *float32 `json:"guest,omitempty"`
+	GuestNice  *float32 `json:"guest_nice,omitempty"`
+}
+
+type DiskStat struct {
+	Name             string `json:"name"`
+	ReadsCompleted   uint64 `json:"reads_completed"`
+	ReadsMerged      uint64 `json:"reads_merged"`
+	SectorsRead      uint64 `json:"sectors_read"`
+	TimeReading      uint64 `json:"time_reading"`
+	WritesCompleted  uint64 `json:"writes_completed"`
+	WritesMerged     uint64 `json:"writes_merged"`
+	SectorsWritten   uint64 `json:"sectors_written"`
+	TimeWriting      uint64 `json:"time_writing"`
+	IOInProgress     uint64 `json:"io_in_progress"`
+	TimeIO           uint64 `json:"time_io"`
+	TimeIOWeighted   uint64 `json:"time_io_weighted"`
+}
+
+type NetworkDevice struct {
+	Name            string `json:"name"`
+	RecvBytes       uint64 `json:"recv_bytes"`
+	RecvPackets     uint64 `json:"recv_packets"`
+	RecvErrs        uint64 `json:"recv_errs"`
+	RecvDrop        uint64 `json:"recv_drop"`
+	RecvFifo        uint64 `json:"recv_fifo"`
+	RecvFrame       uint64 `json:"recv_frame"`
+	RecvCompressed  uint64 `json:"recv_compressed"`
+	RecvMulticast   uint64 `json:"recv_multicast"`
+	SentBytes       uint64 `json:"sent_bytes"`
+	SentPackets     uint64 `json:"sent_packets"`
+	SentErrs        uint64 `json:"sent_errs"`
+	SentDrop        uint64 `json:"sent_drop"`
+	SentFifo        uint64 `json:"sent_fifo"`
+	SentColls       uint64 `json:"sent_colls"`
+	SentCarrier     uint64 `json:"sent_carrier"`
+	SentCompressed  uint64 `json:"sent_compressed"`
+}
+
+type FileFD struct {
+	Allocated uint64 `json:"allocated"`
+	Maximum   uint64 `json:"maximum"`
+}
+
+type VMStatus struct {
+	OK bool `json:"ok"`
+}
+
+type CreateResponse struct {
+	ID    string `json:"id"`
+	State string `json:"state"`
+}
+
 var vsockPath string
 
 func runCommand(name string, args ...string) error {
@@ -184,6 +279,59 @@ func communicateWithVsock(vsockPath string, execCmd ExecCommand) (string, error)
 	return body, nil
 }
 
+func abc(vsockPath string) (string, error) {
+	conn, err := vsock.Dial(vsockPath, 10000)
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to vsock: %w", err)
+	}
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+
+	getRequest := fmt.Sprintf("GET /v1/status HTTP/1.1\r\n"+
+		"Host: 3:10000\r\n"+
+		"Content-Type: application/json\r\n"+
+		"\r\n")
+	if _, err := conn.Write([]byte(getRequest)); err != nil {
+		return "", fmt.Errorf("failed to send GET request: %w", err)
+	}
+
+	_, body, err := readHttpResponse(reader)
+	if err != nil {
+		return "", fmt.Errorf("failed to read GET response: %w", err)
+	}
+	logrus.Infof("GET response: %s", body)
+
+	return body, nil
+}
+
+func xyz(vsockPath string) (string, error) {
+	conn, err := vsock.Dial(vsockPath, 10000)
+	if err != nil {
+		return "", fmt.Errorf("failed to connect to vsock: %w", err)
+	}
+	defer conn.Close()
+
+	reader := bufio.NewReader(conn)
+
+	getRequest := fmt.Sprintf("GET /v1/sysinfo HTTP/1.1\r\n"+
+		"Host: 3:10000\r\n"+
+		"Content-Type: application/json\r\n"+
+		"\r\n")
+	if _, err := conn.Write([]byte(getRequest)); err != nil {
+		return "", fmt.Errorf("failed to send GET request: %w", err)
+	}
+
+	_, body, err := readHttpResponse(reader)
+	if err != nil {
+		return "", fmt.Errorf("failed to read GET response: %w", err)
+	}
+	logrus.Infof("GET response: %s", body)
+
+	return body, nil
+}
+
+
 func readHttpResponse(reader *bufio.Reader) (string, string, error) {
 	var headers bytes.Buffer
 	var contentLength int
@@ -248,7 +396,7 @@ func createExt4Image(machineDir, outputPath string) error {
 // @Accept json
 // @Produce json
 // @Param vmConfig body VMConfig true "VM Configuration"
-// @Success 200 {object} map[string]string
+// @Success 200 {object} CreateResponse "VM Creation Response"
 // @Failure 400 {string} string "Bad Request"
 // @Failure 500 {string} string "Internal Server Error"
 // @Router /create [post]
@@ -325,9 +473,9 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 		logrus.Infof("vsockPath: %s", vsockPath)
 	}()
 
-	response := map[string]string{
-		"id":    machineID,
-		"state": "created",
+	response := CreateResponse{
+		ID:    machineID,
+		State: "created",
 	}
 	responseJSON, err := json.Marshal(response)
 	if err != nil {
@@ -343,10 +491,10 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 // @Summary Execute a command in a VM
 // @Description Executes a command in a running VM
 // @Accept json
-// @Produce plain
+// @Produce json
 // @Param machine_id path string true "Machine ID"
 // @Param execCmd body ExecCommand true "Command to execute"
-// @Success 200 {string} string "Command Output"
+// @Success 200 {object} ExecResponse "Command Output"
 // @Failure 400 {string} string "Bad Request"
 // @Failure 500 {string} string "Internal Server Error"
 // @Router /exec/{machine_id} [post]
@@ -374,9 +522,105 @@ func execCommandHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write([]byte(response))
+	responseJSON, err := json.Marshal(ExecResponse{Output: response})
+	if err != nil {
+		logrus.WithError(err).Error("Failed to marshal response JSON")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(responseJSON)
 }
 
+// @Summary Get VM Status
+// @Description Retrieves the status of a running VM
+// @Accept json
+// @Produce json
+// @Param machine_id path string true "Machine ID"
+// @Success 200 {object} VMStatus "VM Status"
+// @Failure 400 {string} string "Bad Request"
+// @Failure 500 {string} string "Internal Server Error"
+// @Router /status/{machine_id} [get]
+func vmStatus(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	vars := mux.Vars(r)
+	machineID := vars["machine_id"]
+	vsockPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", machineID))
+
+	body, err := abc(vsockPath)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to communicate with vsock")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var vmStatus VMStatus
+	if err := json.Unmarshal([]byte(body), &vmStatus); err != nil {
+		logrus.WithError(err).Error("Failed to unmarshal status response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	responseJSON, err := json.Marshal(vmStatus)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to marshal response JSON")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(responseJSON)
+}
+
+// @Summary Get System Information
+// @Description Retrieves system information of a running VM
+// @Accept json
+// @Produce json
+// @Param machine_id path string true "Machine ID"
+// @Success 200 {object} SysInfo "System Information"
+// @Failure 400 {string} string "Bad Request"
+// @Failure 500 {string} string "Internal Server Error"
+// @Router /sys_info/{machine_id} [get]
+func sysInfo(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Invalid request method", http.StatusMethodNotAllowed)
+		return
+	}
+
+	vars := mux.Vars(r)
+	machineID := vars["machine_id"]
+	vsockPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", machineID))
+
+	body, err := xyz(vsockPath)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to communicate with vsock")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	var sysInfo SysInfo
+	if err := json.Unmarshal([]byte(body), &sysInfo); err != nil {
+		logrus.WithError(err).Error("Failed to unmarshal sysinfo response")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	responseJSON, err := json.Marshal(sysInfo)
+	if err != nil {
+		logrus.WithError(err).Error("Failed to marshal response JSON")
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.Write(responseJSON)
+}
+ 
 // @title Firecracker VM API
 // @version 1.0
 // @description API for managing and controlling Firecracker VMs
@@ -388,6 +632,8 @@ func main() {
 
 	r := mux.NewRouter()
 	r.HandleFunc("/create", startVMHandler).Methods("POST")
+	r.HandleFunc("/status/{machine_id}", vmStatus).Methods("GET")
+	r.HandleFunc("/sys_info/{machine_id}", sysInfo).Methods("GET")
 	r.HandleFunc("/exec/{machine_id}", execCommandHandler).Methods("POST")
 	
 	r.PathPrefix("/swagger/").Handler(httpSwagger.Handler(

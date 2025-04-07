@@ -32,12 +32,9 @@
                 ],
                 "responses": {
                     "200": {
-                        "description": "OK",
+                        "description": "VM Creation Response",
                         "schema": {
-                            "type": "object",
-                            "additionalProperties": {
-                                "type": "string"
-                            }
+                            "$ref": "#/definitions/main.CreateResponse"
                         }
                     },
                     "400": {
@@ -62,7 +59,7 @@
                     "application/json"
                 ],
                 "produces": [
-                    "text/plain"
+                    "application/json"
                 ],
                 "summary": "Execute a command in a VM",
                 "parameters": [
@@ -87,7 +84,89 @@
                     "200": {
                         "description": "Command Output",
                         "schema": {
+                            "$ref": "#/definitions/main.ExecResponse"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
                             "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/status/{machine_id}": {
+            "get": {
+                "description": "Retrieves the status of a running VM",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Get VM Status",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Machine ID",
+                        "name": "machine_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "VM Status",
+                        "schema": {
+                            "$ref": "#/definitions/main.VMStatus"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request",
+                        "schema": {
+                            "type": "string"
+                        }
+                    },
+                    "500": {
+                        "description": "Internal Server Error",
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                }
+            }
+        },
+        "/sys_info/{machine_id}": {
+            "get": {
+                "description": "Retrieves system information of a running VM",
+                "consumes": [
+                    "application/json"
+                ],
+                "produces": [
+                    "application/json"
+                ],
+                "summary": "Get System Information",
+                "parameters": [
+                    {
+                        "type": "string",
+                        "description": "Machine ID",
+                        "name": "machine_id",
+                        "in": "path",
+                        "required": true
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "System Information",
+                        "schema": {
+                            "$ref": "#/definitions/main.SysInfo"
                         }
                     },
                     "400": {
@@ -107,6 +186,93 @@
         }
     },
     "definitions": {
+        "main.CPU": {
+            "type": "object",
+            "properties": {
+                "guest": {
+                    "type": "number"
+                },
+                "guest_nice": {
+                    "type": "number"
+                },
+                "idle": {
+                    "type": "number"
+                },
+                "iowait": {
+                    "type": "number"
+                },
+                "irq": {
+                    "type": "number"
+                },
+                "nice": {
+                    "type": "number"
+                },
+                "softirq": {
+                    "type": "number"
+                },
+                "steal": {
+                    "type": "number"
+                },
+                "system": {
+                    "type": "number"
+                },
+                "user": {
+                    "type": "number"
+                }
+            }
+        },
+        "main.CreateResponse": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "type": "string"
+                },
+                "state": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.DiskStat": {
+            "type": "object",
+            "properties": {
+                "io_in_progress": {
+                    "type": "integer"
+                },
+                "name": {
+                    "type": "string"
+                },
+                "reads_completed": {
+                    "type": "integer"
+                },
+                "reads_merged": {
+                    "type": "integer"
+                },
+                "sectors_read": {
+                    "type": "integer"
+                },
+                "sectors_written": {
+                    "type": "integer"
+                },
+                "time_io": {
+                    "type": "integer"
+                },
+                "time_io_weighted": {
+                    "type": "integer"
+                },
+                "time_reading": {
+                    "type": "integer"
+                },
+                "time_writing": {
+                    "type": "integer"
+                },
+                "writes_completed": {
+                    "type": "integer"
+                },
+                "writes_merged": {
+                    "type": "integer"
+                }
+            }
+        },
         "main.ExecCommand": {
             "type": "object",
             "properties": {
@@ -114,6 +280,172 @@
                     "type": "array",
                     "items": {
                         "type": "string"
+                    }
+                }
+            }
+        },
+        "main.ExecResponse": {
+            "type": "object",
+            "properties": {
+                "output": {
+                    "type": "string"
+                }
+            }
+        },
+        "main.FileFD": {
+            "type": "object",
+            "properties": {
+                "allocated": {
+                    "type": "integer"
+                },
+                "maximum": {
+                    "type": "integer"
+                }
+            }
+        },
+        "main.Memory": {
+            "type": "object",
+            "properties": {
+                "active": {
+                    "type": "integer"
+                },
+                "buffers": {
+                    "type": "integer"
+                },
+                "cached": {
+                    "type": "integer"
+                },
+                "dirty": {
+                    "type": "integer"
+                },
+                "inactive": {
+                    "type": "integer"
+                },
+                "mem_available": {
+                    "type": "integer"
+                },
+                "mem_free": {
+                    "type": "integer"
+                },
+                "mem_total": {
+                    "type": "integer"
+                },
+                "shmem": {
+                    "type": "integer"
+                },
+                "slab": {
+                    "type": "integer"
+                },
+                "swap_cached": {
+                    "type": "integer"
+                },
+                "swap_free": {
+                    "type": "integer"
+                },
+                "swap_total": {
+                    "type": "integer"
+                },
+                "vmalloc_chunk": {
+                    "type": "integer"
+                },
+                "vmalloc_total": {
+                    "type": "integer"
+                },
+                "vmalloc_used": {
+                    "type": "integer"
+                },
+                "writeback": {
+                    "type": "integer"
+                }
+            }
+        },
+        "main.NetworkDevice": {
+            "type": "object",
+            "properties": {
+                "name": {
+                    "type": "string"
+                },
+                "recv_bytes": {
+                    "type": "integer"
+                },
+                "recv_compressed": {
+                    "type": "integer"
+                },
+                "recv_drop": {
+                    "type": "integer"
+                },
+                "recv_errs": {
+                    "type": "integer"
+                },
+                "recv_fifo": {
+                    "type": "integer"
+                },
+                "recv_frame": {
+                    "type": "integer"
+                },
+                "recv_multicast": {
+                    "type": "integer"
+                },
+                "recv_packets": {
+                    "type": "integer"
+                },
+                "sent_bytes": {
+                    "type": "integer"
+                },
+                "sent_carrier": {
+                    "type": "integer"
+                },
+                "sent_colls": {
+                    "type": "integer"
+                },
+                "sent_compressed": {
+                    "type": "integer"
+                },
+                "sent_drop": {
+                    "type": "integer"
+                },
+                "sent_errs": {
+                    "type": "integer"
+                },
+                "sent_fifo": {
+                    "type": "integer"
+                },
+                "sent_packets": {
+                    "type": "integer"
+                }
+            }
+        },
+        "main.SysInfo": {
+            "type": "object",
+            "properties": {
+                "cpus": {
+                    "type": "object",
+                    "additionalProperties": {
+                        "$ref": "#/definitions/main.CPU"
+                    }
+                },
+                "disks": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.DiskStat"
+                    }
+                },
+                "filefd": {
+                    "$ref": "#/definitions/main.FileFD"
+                },
+                "load_average": {
+                    "type": "array",
+                    "items": {
+                        "type": "number"
+                    }
+                },
+                "memory": {
+                    "$ref": "#/definitions/main.Memory"
+                },
+                "net": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/main.NetworkDevice"
                     }
                 }
             }
@@ -167,6 +499,14 @@
                             }
                         }
                     }
+                }
+            }
+        },
+        "main.VMStatus": {
+            "type": "object",
+            "properties": {
+                "ok": {
+                    "type": "boolean"
                 }
             }
         }

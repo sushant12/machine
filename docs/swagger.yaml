@@ -1,10 +1,176 @@
 basePath: /
 definitions:
+  main.CPU:
+    properties:
+      guest:
+        type: number
+      guest_nice:
+        type: number
+      idle:
+        type: number
+      iowait:
+        type: number
+      irq:
+        type: number
+      nice:
+        type: number
+      softirq:
+        type: number
+      steal:
+        type: number
+      system:
+        type: number
+      user:
+        type: number
+    type: object
+  main.CreateResponse:
+    properties:
+      id:
+        type: string
+      state:
+        type: string
+    type: object
+  main.DiskStat:
+    properties:
+      io_in_progress:
+        type: integer
+      name:
+        type: string
+      reads_completed:
+        type: integer
+      reads_merged:
+        type: integer
+      sectors_read:
+        type: integer
+      sectors_written:
+        type: integer
+      time_io:
+        type: integer
+      time_io_weighted:
+        type: integer
+      time_reading:
+        type: integer
+      time_writing:
+        type: integer
+      writes_completed:
+        type: integer
+      writes_merged:
+        type: integer
+    type: object
   main.ExecCommand:
     properties:
       cmd:
         items:
           type: string
+        type: array
+    type: object
+  main.ExecResponse:
+    properties:
+      output:
+        type: string
+    type: object
+  main.FileFD:
+    properties:
+      allocated:
+        type: integer
+      maximum:
+        type: integer
+    type: object
+  main.Memory:
+    properties:
+      active:
+        type: integer
+      buffers:
+        type: integer
+      cached:
+        type: integer
+      dirty:
+        type: integer
+      inactive:
+        type: integer
+      mem_available:
+        type: integer
+      mem_free:
+        type: integer
+      mem_total:
+        type: integer
+      shmem:
+        type: integer
+      slab:
+        type: integer
+      swap_cached:
+        type: integer
+      swap_free:
+        type: integer
+      swap_total:
+        type: integer
+      vmalloc_chunk:
+        type: integer
+      vmalloc_total:
+        type: integer
+      vmalloc_used:
+        type: integer
+      writeback:
+        type: integer
+    type: object
+  main.NetworkDevice:
+    properties:
+      name:
+        type: string
+      recv_bytes:
+        type: integer
+      recv_compressed:
+        type: integer
+      recv_drop:
+        type: integer
+      recv_errs:
+        type: integer
+      recv_fifo:
+        type: integer
+      recv_frame:
+        type: integer
+      recv_multicast:
+        type: integer
+      recv_packets:
+        type: integer
+      sent_bytes:
+        type: integer
+      sent_carrier:
+        type: integer
+      sent_colls:
+        type: integer
+      sent_compressed:
+        type: integer
+      sent_drop:
+        type: integer
+      sent_errs:
+        type: integer
+      sent_fifo:
+        type: integer
+      sent_packets:
+        type: integer
+    type: object
+  main.SysInfo:
+    properties:
+      cpus:
+        additionalProperties:
+          $ref: '#/definitions/main.CPU'
+        type: object
+      disks:
+        items:
+          $ref: '#/definitions/main.DiskStat'
+        type: array
+      filefd:
+        $ref: '#/definitions/main.FileFD'
+      load_average:
+        items:
+          type: number
+        type: array
+      memory:
+        $ref: '#/definitions/main.Memory'
+      net:
+        items:
+          $ref: '#/definitions/main.NetworkDevice'
         type: array
     type: object
   main.VMConfig:
@@ -40,6 +206,11 @@ definitions:
             type: object
         type: object
     type: object
+  main.VMStatus:
+    properties:
+      ok:
+        type: boolean
+    type: object
 host: localhost:8080
 info:
   contact: {}
@@ -63,11 +234,9 @@ paths:
       - application/json
       responses:
         "200":
-          description: OK
+          description: VM Creation Response
           schema:
-            additionalProperties:
-              type: string
-            type: object
+            $ref: '#/definitions/main.CreateResponse'
         "400":
           description: Bad Request
           schema:
@@ -95,12 +264,12 @@ paths:
         schema:
           $ref: '#/definitions/main.ExecCommand'
       produces:
-      - text/plain
+      - application/json
       responses:
         "200":
           description: Command Output
           schema:
-            type: string
+            $ref: '#/definitions/main.ExecResponse'
         "400":
           description: Bad Request
           schema:
@@ -110,4 +279,58 @@ paths:
           schema:
             type: string
       summary: Execute a command in a VM
+  /status/{machine_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves the status of a running VM
+      parameters:
+      - description: Machine ID
+        in: path
+        name: machine_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: VM Status
+          schema:
+            $ref: '#/definitions/main.VMStatus'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Get VM Status
+  /sys_info/{machine_id}:
+    get:
+      consumes:
+      - application/json
+      description: Retrieves system information of a running VM
+      parameters:
+      - description: Machine ID
+        in: path
+        name: machine_id
+        required: true
+        type: string
+      produces:
+      - application/json
+      responses:
+        "200":
+          description: System Information
+          schema:
+            $ref: '#/definitions/main.SysInfo'
+        "400":
+          description: Bad Request
+          schema:
+            type: string
+        "500":
+          description: Internal Server Error
+          schema:
+            type: string
+      summary: Get System Information
 swagger: "2.0"
