@@ -20,7 +20,6 @@ import (
 	gonanoid "github.com/matoous/go-nanoid/v2"
 	"github.com/sirupsen/logrus"
 	"github.com/sushant12/machine/pkg/rootfs"
-	"github.com/sushant12/machine/pkg/utils"
 	httpSwagger "github.com/swaggo/http-swagger"
 	_ "github.com/swaggo/swag"
 )
@@ -228,6 +227,121 @@ func createConfigFile(vmConfig VMConfig, rootfsPath, vsockPath, configFilePath s
 	return nil
 }
 
+func createRunJSON(vmConfig VMConfig, machineDir string) error {
+	runConfig := map[string]interface{}{
+		"ImageConfig": map[string]interface{}{
+			"Entrypoint": nil,
+			"Cmd":        []string{"/bin/sleep", "inf"},
+			"Env":        []string{"PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"},
+			"WorkingDir": "/",
+			"User":       "nobody",
+		},
+		"ExecOverride": nil,
+		"ExtraEnv":     nil,
+		"UserOverride": nil,
+		"CmdOverride":  nil,
+		"IPConfigs": []map[string]interface{}{
+			{
+				"Gateway": "172.17.0.1/24",
+				"IP":      "172.17.0.2/24",
+				"Mask":    24,
+			},
+		},
+		"Tty":      true,
+		"Hostname": "container-1",
+		"Mounts":   nil,
+		"RootDevice": nil,
+		"EtcResolv": map[string]interface{}{
+			"Nameservers": []string{"8.8.8.8", "8.8.4.4"},
+		},
+		"EtcHosts": []map[string]interface{}{
+			{
+				"Host": "localhost",
+				"IP":   "127.0.0.1",
+				"Desc": "Local loopback",
+			},
+			{
+				"Host": "container-1",
+				"IP":   "172.17.0.2",
+				"Desc": "Container hostname",
+			},
+		},
+		"files": func() []map[string]string {
+			files := []map[string]string{}
+			for _, file := range vmConfig.Config.Files {
+				files = append(files, map[string]string{
+					"guest_path": file.GuestPath,
+					"raw_value":  file.RawValue,
+				})
+			}
+			return files
+		}(),
+	}
+
+	runJSONPath := filepath.Join(machineDir, "run.json")
+	runJSONFile, err := os.Create(runJSONPath)
+	if err != nil {
+		return fmt.Errorf("failed to create run.json file: %w", err)
+	}
+	defer runJSONFile.Close()
+
+	if err := json.NewEncoder(runJSONFile).Encode(runConfig); err != nil {
+		return fmt.Errorf("failed to encode run.json file: %w", err)
+	}
+
+	return nil
+}
+
+func setupTmpInitDevice(machineDir, binDir, runJSONPath string) error {
+	tmpInitPath := filepath.Join(machineDir, "tmpinit")
+	initMountPath := filepath.Join(machineDir, "initmount")
+	initBinaryPath := filepath.Join(binDir, "init")
+
+	logrus.Info("Setting up tmpinit device...")
+
+	if err := exec.Command("fallocate", "-l", "64M", tmpInitPath).Run(); err != nil {
+		return fmt.Errorf("failed to allocate tmpinit file: %w", err)
+	}
+
+	if err := exec.Command("mkfs.ext2", tmpInitPath).Run(); err != nil {
+		return fmt.Errorf("failed to format tmpinit file: %w", err)
+	}
+
+	if err := os.MkdirAll(initMountPath, 0755); err != nil {
+		return fmt.Errorf("failed to create initmount directory: %w", err)
+	}
+
+	_ = exec.Command("sudo", "umount", initMountPath).Run()
+
+	if err := exec.Command("sudo", "mount", "-o", "loop,noatime", tmpInitPath, initMountPath).Run(); err != nil {
+		return fmt.Errorf("failed to mount tmpinit file: %w", err)
+	}
+
+	flyDir := filepath.Join(initMountPath, "fly")
+	if err := os.MkdirAll(flyDir, 0755); err != nil {
+		return fmt.Errorf("failed to create /fly directory: %w", err)
+	}
+
+	if err := exec.Command("sudo", "cp", initBinaryPath, filepath.Join(flyDir, "init")).Run(); err != nil {
+		return fmt.Errorf("failed to copy init binary: %w", err)
+	}
+
+	if err := exec.Command("sudo", "cp", runJSONPath, filepath.Join(flyDir, "run.json")).Run(); err != nil {
+		return fmt.Errorf("failed to copy run.json file: %w", err)
+	}
+
+	if err := exec.Command("sudo", "umount", initMountPath).Run(); err != nil {
+		return fmt.Errorf("failed to unmount tmpinit file: %w", err)
+	}
+
+	if err := os.RemoveAll(initMountPath); err != nil {
+		return fmt.Errorf("failed to remove initmount directory: %w", err)
+	}
+
+	logrus.Info("tmpinit device setup completed.")
+	return nil
+}
+
 func startFirecrackerInstance(vmConfig VMConfig, rootfsPath, socketPath, vsockPath, configFilePath string) error {
 	if err := createConfigFile(vmConfig, rootfsPath, vsockPath, configFilePath); err != nil {
 		return fmt.Errorf("failed to create config file: %w", err)
@@ -432,12 +546,12 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 	configFilePath := filepath.Join("/tmp", fmt.Sprintf("firecracker-config-%s.json", machineID))
 	logPath := filepath.Join(machineDir, "firecracker.log")
 
-	logrus.Info("copying tmpinit...")
-	if err := utils.CopyFile("./bin/tmpinit", filepath.Join(machineDir, "tmpinit")); err != nil {
-		logrus.WithError(err).Error("Failed to copy tmpinit file")
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// logrus.Info("copying tmpinit...")
+	// if err := utils.CopyFile("./bin/tmpinit", filepath.Join(machineDir, "tmpinit")); err != nil {
+	// 	logrus.WithError(err).Error("Failed to copy tmpinit file")
+	// 	http.Error(w, err.Error(), http.StatusInternalServerError)
+	// 	return
+	// }
 	logrus.Info("create logfile...")
 	if _, err := os.Create(logPath); err != nil {
 		logrus.WithError(err).Error("Failed to create log file")
@@ -462,6 +576,17 @@ func startVMHandler(w http.ResponseWriter, r *http.Request) {
 		rootfsDir := filepath.Join(machineDir, "rootfs")
 		if err := os.RemoveAll(rootfsDir); err != nil {
 			logrus.WithError(err).Error("Failed to clean up rootfs directory")
+		}
+
+		if err := createRunJSON(vmConfig, machineDir); err != nil {
+			logrus.WithError(err).Error("Failed to create run.json file")
+			return
+		}
+
+		runJSONPath := filepath.Join(machineDir, "run.json")
+		if err := setupTmpInitDevice(machineDir, "./bin", runJSONPath); err != nil {
+			logrus.WithError(err).Error("Failed to set up tmpinit device")
+			return
 		}
 
 		if err := startFirecrackerInstance(vmConfig, machineDir, socketPath, vsockPath, configFilePath); err != nil {
