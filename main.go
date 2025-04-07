@@ -177,7 +177,7 @@ func createConfigFile(vmConfig VMConfig, rootfsPath, vsockPath, configFilePath s
 	config := map[string]interface{}{
 		"boot-source": map[string]interface{}{
 			"kernel_image_path": "./bin/vmlinux",
-			"boot_args":         "console=ttyS0 reboot=k panic=1 pci=off init=/fly/init",
+			"boot_args":         "console=ttyS0 reboot=k panic=1 pci=off init=/firestarter/init",
 			"initrd_path":       nil,
 		},
 		"drives": []map[string]interface{}{
@@ -317,16 +317,16 @@ func setupTmpInitDevice(machineDir, binDir, runJSONPath string) error {
 		return fmt.Errorf("failed to mount tmpinit file: %w", err)
 	}
 
-	flyDir := filepath.Join(initMountPath, "fly")
-	if err := os.MkdirAll(flyDir, 0755); err != nil {
-		return fmt.Errorf("failed to create /fly directory: %w", err)
+	initDir := filepath.Join(initMountPath, "firestarter")
+	if err := os.MkdirAll(initDir, 0755); err != nil {
+		return fmt.Errorf("failed to create /firestarter directory: %w", err)
 	}
 
-	if err := exec.Command("sudo", "cp", initBinaryPath, filepath.Join(flyDir, "init")).Run(); err != nil {
+	if err := exec.Command("sudo", "cp", initBinaryPath, filepath.Join(initDir, "init")).Run(); err != nil {
 		return fmt.Errorf("failed to copy init binary: %w", err)
 	}
 
-	if err := exec.Command("sudo", "cp", runJSONPath, filepath.Join(flyDir, "run.json")).Run(); err != nil {
+	if err := exec.Command("sudo", "cp", runJSONPath, filepath.Join(initDir, "run.json")).Run(); err != nil {
 		return fmt.Errorf("failed to copy run.json file: %w", err)
 	}
 
@@ -393,7 +393,7 @@ func communicateWithVsock(vsockPath string, execCmd ExecCommand) (string, error)
 	return body, nil
 }
 
-func abc(vsockPath string) (string, error) {
+func sendVsockRequest(vsockPath, endpoint string) (string, error) {
 	conn, err := vsock.Dial(vsockPath, 10000)
 	if err != nil {
 		return "", fmt.Errorf("failed to connect to vsock: %w", err)
@@ -402,10 +402,10 @@ func abc(vsockPath string) (string, error) {
 
 	reader := bufio.NewReader(conn)
 
-	getRequest := fmt.Sprintf("GET /v1/status HTTP/1.1\r\n"+
+	getRequest := fmt.Sprintf("GET %s HTTP/1.1\r\n"+
 		"Host: 3:10000\r\n"+
 		"Content-Type: application/json\r\n"+
-		"\r\n")
+		"\r\n", endpoint)
 	if _, err := conn.Write([]byte(getRequest)); err != nil {
 		return "", fmt.Errorf("failed to send GET request: %w", err)
 	}
@@ -414,37 +414,18 @@ func abc(vsockPath string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to read GET response: %w", err)
 	}
-	logrus.Infof("GET response: %s", body)
+	logrus.Infof("GET response from %s: %s", endpoint, body)
 
 	return body, nil
 }
 
-func xyz(vsockPath string) (string, error) {
-	conn, err := vsock.Dial(vsockPath, 10000)
-	if err != nil {
-		return "", fmt.Errorf("failed to connect to vsock: %w", err)
-	}
-	defer conn.Close()
-
-	reader := bufio.NewReader(conn)
-
-	getRequest := fmt.Sprintf("GET /v1/sysinfo HTTP/1.1\r\n"+
-		"Host: 3:10000\r\n"+
-		"Content-Type: application/json\r\n"+
-		"\r\n")
-	if _, err := conn.Write([]byte(getRequest)); err != nil {
-		return "", fmt.Errorf("failed to send GET request: %w", err)
-	}
-
-	_, body, err := readHttpResponse(reader)
-	if err != nil {
-		return "", fmt.Errorf("failed to read GET response: %w", err)
-	}
-	logrus.Infof("GET response: %s", body)
-
-	return body, nil
+func getVMStatus(vsockPath string) (string, error) {
+	return sendVsockRequest(vsockPath, "/v1/status")
 }
 
+func getSystemInfo(vsockPath string) (string, error) {
+	return sendVsockRequest(vsockPath, "/v1/sysinfo")
+}
 
 func readHttpResponse(reader *bufio.Reader) (string, string, error) {
 	var headers bytes.Buffer
@@ -677,7 +658,7 @@ func vmStatus(w http.ResponseWriter, r *http.Request) {
 	machineID := vars["machine_id"]
 	vsockPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", machineID))
 
-	body, err := abc(vsockPath)
+	body, err := getVMStatus(vsockPath)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to communicate with vsock")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -721,7 +702,7 @@ func sysInfo(w http.ResponseWriter, r *http.Request) {
 	machineID := vars["machine_id"]
 	vsockPath := filepath.Join("/tmp", fmt.Sprintf("firecracker-vsock-%s.sock", machineID))
 
-	body, err := xyz(vsockPath)
+	body, err := getSystemInfo(vsockPath)
 	if err != nil {
 		logrus.WithError(err).Error("Failed to communicate with vsock")
 		http.Error(w, err.Error(), http.StatusInternalServerError)
